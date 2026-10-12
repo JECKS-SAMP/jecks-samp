@@ -16,19 +16,24 @@ jobs:
       - name: Send commit notifications to Discord
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DC_WEBHOOK_URL }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
         run: |
+          python3 -m pip install --quiet requests
+
           python3 <<'PY'
           import json
           import os
           import sys
-          import urllib.request
-          import urllib.error
+          import requests
 
           webhook_url = os.environ.get("DISCORD_WEBHOOK_URL", "")
           event_path = os.environ.get("GITHUB_EVENT_PATH", "")
 
           if not webhook_url:
               sys.exit("Missing DISCORD_WEBHOOK_URL secret")
+
+          if not os.path.isfile(event_path):
+              sys.exit(f"GitHub event file not found: {event_path!r}")
 
           with open(event_path, encoding="utf-8") as f:
               event = json.load(f)
@@ -50,12 +55,11 @@ jobs:
               author = (commit.get("author") or {}).get(
                   "name", "Unknown"
               )
-              url = commit.get("url", "")
+              commit_url = commit.get("url", "")
 
               embed = {
                   "title": "New commit pushed to main",
                   "description": message[:4000],
-                  "url": url if url.startswith("https://github.com/") else None,
                   "color": 5793266,
                   "fields": [
                       {
@@ -82,34 +86,32 @@ jobs:
                   "footer": {"text": "GitHub Actions"}
               }
 
+              if commit_url.startswith("https://github.com/"):
+                  embed["url"] = commit_url
+
               payload = {
                   "username": "GitHub Commit Bot",
                   "allowed_mentions": {"parse": []},
                   "embeds": [embed]
               }
 
-              # Discord embed URL must be omitted if unavailable.
-              if not embed["url"]:
-                  del embed["url"]
-
-              request = urllib.request.Request(
-                  webhook_url,
-                  data=json.dumps(payload).encode("utf-8"),
-                  headers={"Content-Type": "application/json"},
-                  method="POST"
-              )
-
               try:
-                  with urllib.request.urlopen(request, timeout=15) as response:
-                      print(f"Sent {sha[:7]}: HTTP {response.status}")
+                  response = requests.post(
+                      webhook_url,
+                      json=payload,
+                      timeout=20
+                  )
 
-              except urllib.error.HTTPError as error:
-                  details = error.read().decode("utf-8", errors="replace")
-                  print(f"Discord returned HTTP {error.code}")
-                  print(f"Discord response: {details}")
-                  sys.exit(1)
+                  if response.status_code in (200, 204):
+                      print(f"Sent {sha[:7]}: HTTP {response.status_code}")
+                  else:
+                      print(
+                          f"Discord returned HTTP {response.status_code}"
+                      )
+                      print(f"Discord response: {response.text[:1000]}")
+                      sys.exit(1)
 
-              except urllib.error.URLError as error:
-                  print(f"Could not reach Discord: {error}")
+              except requests.RequestException as error:
+                  print(f"Request failed: {type(error).__name__}: {error}")
                   sys.exit(1)
           PY
