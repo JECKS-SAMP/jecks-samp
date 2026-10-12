@@ -1,0 +1,112 @@
+name: Notify Discord on Main Commit
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  notify-discord:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send commit notifications to Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DC_WEBHOOK_URL }}
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.request
+          import urllib.error
+
+          webhook_url = os.environ.get("DISCORD_WEBHOOK_URL", "")
+          event_path = os.environ["EVENT_PATH"]
+
+          if not webhook_url:
+              sys.exit("Missing DISCORD_WEBHOOK_URL secret")
+
+          with open(event_path, encoding="utf-8") as f:
+              event = json.load(f)
+
+          commits = event.get("commits", [])
+
+          if not commits:
+              print("No commits found in this push.")
+              sys.exit(0)
+
+          repo = event.get("repository", {}).get(
+              "full_name", "unknown/repository"
+          )
+          branch = event.get("ref", "").removeprefix("refs/heads/")
+
+          for commit in commits:
+              sha = commit.get("id", "")
+              message = commit.get("message", "(no message)")
+              author = (commit.get("author") or {}).get(
+                  "name", "Unknown"
+              )
+              url = commit.get("url", "")
+
+              embed = {
+                  "title": "New commit pushed to main",
+                  "description": message[:4000],
+                  "url": url if url.startswith("https://github.com/") else None,
+                  "color": 5793266,
+                  "fields": [
+                      {
+                          "name": "Repository",
+                          "value": repo[:1024],
+                          "inline": True
+                      },
+                      {
+                          "name": "Branch",
+                          "value": branch[:1024] or "main",
+                          "inline": True
+                      },
+                      {
+                          "name": "Author",
+                          "value": author[:1024] or "Unknown",
+                          "inline": True
+                      },
+                      {
+                          "name": "Commit",
+                          "value": f"`{sha[:7]}`",
+                          "inline": True
+                      }
+                  ],
+                  "footer": {"text": "GitHub Actions"}
+              }
+
+              payload = {
+                  "username": "GitHub Commit Bot",
+                  "allowed_mentions": {"parse": []},
+                  "embeds": [embed]
+              }
+
+              # Discord embed URL must be omitted if unavailable.
+              if not embed["url"]:
+                  del embed["url"]
+
+              request = urllib.request.Request(
+                  webhook_url,
+                  data=json.dumps(payload).encode("utf-8"),
+                  headers={"Content-Type": "application/json"},
+                  method="POST"
+              )
+
+              try:
+                  with urllib.request.urlopen(request, timeout=15) as response:
+                      print(f"Sent {sha[:7]}: HTTP {response.status}")
+              except urllib.error.HTTPError as error:
+                  print(f"Discord returned HTTP {error.code}")
+                  sys.exit(1)
+              except urllib.error.URLError as error:
+                  print(f"Could not reach Discord: {error}")
+                  sys.exit(1)
+          PY
