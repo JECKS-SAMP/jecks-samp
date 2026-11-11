@@ -1,0 +1,10 @@
+{
+  "game_version": "17.1",
+  "game_url": "https://huggingface.co/datasets/Kompres/alyn-game-data/resolve/main/alyn_sampmobile.apk",
+  "game_files": "https://huggingface.co/datasets/Kompres/alyn-game-data/raw/main/game-files.json",
+  "discord": "https://discord.gg/",
+  "changelog": "https://huggingface.co/datasets/Kompres/alyn-game-data/raw/main/changelog.json",
+  "servers": "https://huggingface.co/datasets/Kompres/alyn-game-data/raw/main/servers.json",
+  "banned": "https://huggingface.co/datasets/Kompres/alyn-game-data/raw/main/banned.json",
+  "app_status": true
+}
